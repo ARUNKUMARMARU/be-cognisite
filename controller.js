@@ -62,7 +62,7 @@ const controller = {
       
         const query = 'insert into observation (location,problem,target,statuss,persion,corrction,actions) values (?,?,?,?,?,?,?)';     
         db.query(query,[location,problem,target,status,persion,corrction,action],async (error, result)=>{
-           
+           res.status(200).json({"Result" : result})
         })
     },
     getobservation : async(req,res)=>{
