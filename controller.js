@@ -1,100 +1,97 @@
 const config = require('./config');
 const nodemailer = require('nodemailer');
-const db = config.pool;
+const userModel = require("./models/userModel");
+const observationModel = require('./models/observation')
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken')
+
 const controller = {
     signup : async(req,res) => {
         try{
-            const {organisation_name,name, mobile_number,email,password, address} = req.body;            
-                 const verifyEmail = 'select * from users where email = ?';                
-              db.query(verifyEmail,[email], async (error,result)=>{
-                if(error){
-                    console.log(error)
-                    res.status(500).json({'Error' : error})
-                }              
-                    if(result.length != 0){                       
-                        res.status(409).json({'message :' : "This Email was Already Exist"})
-                    }else{
-                        const passwordHash = await bcrypt.hash(password,10)
-                        const query = 'insert into users (origanisation_name, name, mobile_number,email,password, address) values (?,?,?,?,?,?)';
-                        db.query(query,[organisation_name, name, mobile_number,email,passwordHash, address],async (error, result)=>{
-                            if(error){   
-                                console.log(error)                             
-                                res.status(500).json({'Error :' : error})
-                            }else{  
-                                console.log(result)                             
-                                res.status(200).json({Message : 'Signup Compleated Successfully',result})
-                            }
-                        })
-                    }
-                 });         
-             
+            const {organisation_name,name, mobile_number,email,password, address} = req.body;   
+                   
+                 const verifyEmail = await userModel.findOne({email})    
+                 if (verifyEmail) {
+                    return res.status(400).json({ error: 'Email already exists' });
+                }else{
+                    const passwordHash = await bcrypt.hash(password,10);
+                    const newUser = new userModel({
+                        organisation_name,
+                        name, 
+                        mobile_number,
+                        email,
+                        password : passwordHash , 
+                        address
+                    });
+                    const savedUser = await newUser.save();
+                    res.json({ message: 'user created', user: savedUser });
+                }               
+                           
         }catch(error){
-            res.send(error)
+            res.status(500).json({ error: error.message})
         }
     },
 
     signin : async(req,res)=>{
-        const {email, password} = req.body;
-      const user = 'select * from users where email = ?'
-      db.query(user, [email], async (error, result)=>{
-        if(error){
-            res.status(500).json({'Error' : error})
+        const {email, password} = req.body;    
+      const user = await userModel.findOne({email});
+        if(!user){
+            return res.json({ error: 'user not found' });
+        }        
+        const passwordMatch = await bcrypt.compare(password, user.password);
+        if (!passwordMatch) {
+            return res.json({ error: 'incorrect password' });
         }
-        
-        if(result.length == 0){
-            res.status(505).json({'message' : 'Email Not Found'})
-        }else{
-            const passwordMatch = await bcrypt.compare(password, result[0].password);
-           if(!passwordMatch){
-            res.status(401).json({'Message' : "Invalid Password"})
-           }else{
-            res.status(200).json({Message : "User Loggedin Successfully"})
-           }
-        }
-      })
+        const token = jwt.sign({
+            id: user._id,  
+            email: user.email,
+            name: user.name
+        }, config.JWT_SECRET);
 
+        res.json({ message: 'user signed in', token});
     },
 
     observation : async(req,res)=>{
         const { location,problem,target,status,persion,corrction,action} = req.body;
+      const newObservation = new observationModel({
+        location,
+        problem,
+        target,
+        status,
+        persion,
+        corrction,
+        action
+      });
       
-        const query = 'insert into observation (location,problem,target,statuss,persion,corrction,actions) values (?,?,?,?,?,?,?)';     
-        db.query(query,[location,problem,target,status,persion,corrction,action],async (error, result)=>{
-           res.status(200).json({"Result" : result})
-        })
+      const savedObservation = await newObservation.save();
+       
+           res.status(200).json({"Message" : "New Observation Stored successfully", savedObservation})
+      
     },
-    getobservation : async(req,res)=>{
+    getobservation : async(req,res)=>{       
        
-       
-        const query = 'select * from observation';     
-        const resp = db.query(query,async (error, result)=>{
-            res.json({"result" : result})        
-        })
+        const savedObservation = await observationModel.find({});        
+            res.json({savedObservation});           
     },
     
     createLink : async (req, res)=>{
         const {email} = req.body;
       
-        const query = "SELECT * FROM users WHERE email = ?";
-        db.query(query,[email], async(error, result)=>{
-            if(error){
-                res.status(500).json({Error : error});
-            }else if(result.length === 0){
-               
-                res.status(505).json({Message : "Email Not Found"});
-            }else{
+        const verifyEmail = await userModel.findOne({email});
+        
+        if(!verifyEmail){
+            return res.json({ error: 'Email not found' });
+        }      
             const token = await crypto.randomBytes(32).toString('hex');
             const date = new Date();
             const linkExpiryTime = new Date(date.getTime()+ 10*60000);
-            // console.log(date);
-            // console.log(linkExpiryTime);
-            const addToken = "UPDATE users SET token = ?, linkExpiryTime = ? WHERE email = ?";
-            db.query(addToken,[token,linkExpiryTime,email], async(error, result)=>{
-                if(error){
-                    res.status(500).json({Error : error});
-                }
+           
+           verifyEmail.token = token;
+           verifyEmail.linkExpiryTime = linkExpiryTime;
+
+           verifyEmail.save();
+           
                 var transporter = nodemailer.createTransport({
                     service: 'gmail',
                  auth: {
@@ -108,46 +105,31 @@ const controller = {
                     from : config.USER_EMAIL,
                     subject : "Password Reset Link",
                     html : `<p>To reset your passwod 
-                    <a href="${config.BASE_URL}/new-password/${token}">click here</a> </p> `
+                    <a href="${config.BASE_URL}/new-password/${token}">click here</a> </p>  </br>
+                    <p><b>Note : </b> This link will expire in 10 Minutes</p>`
                 }
               await transporter.sendMail(mailDetails);
-              res.status(200).send('Password reset link sent successfully');
-            })
-        }
-        })
-        
+              res.status(200).send('Password reset link sent successfully');        
     },
 
     setNewPassword : async (req,res)=>{
-        const token = req.params.token;
-       
-        const id = "SELECT id FROM users WHERE token = ?";
-        db.query(id,[token],async(error,result)=>{
+        const token = req.params.token;       
+        const user = await userModel.findOne({token : token});
         
-            if(error){
-                res.status(500).json({Error : error});
-            }else if(result.length === 0){
-                res.status(400).json({"Message" : "Invalid link"});
-            }else{
-                const date = new Date()
-                if(result[0].linkExpiryTime < date){
-                    res.status(400).json({"Message" : "Link was expired"});
-                }else{
-                    const {password} = req.body;
-                    const passwordHash = await bcrypt.hash(password,10)
-                    const newPassword = "UPDATE users SET password = ? WHERE id= ?";
-                    db.query(newPassword,[passwordHash,result[0].id], async(error,result)=>{
-                       
-                        if(error){
-                            res.status(500).json({Error : error});
-                        }else if(result.length != 0){
-                            res.status(200).json({Message : "Password changed successfully"});
-                        }
-                    })
-                }
-            }
-        })       
-
+        if(!user){
+            res.json({Message : "Invalid Token"})
+        } 
+        //   const date = new Date();
+        //  const verifyTime = new Date(date.getTime());
+        //   if(user.linkExpiryTime < verifyTime){
+        //     res.status(400).json({"Message" : "Link was expired"});
+        //   }
+          const {password} = req.body;     
+          const passwordHash = await bcrypt.hash(password,10)         
+           user.password = passwordHash;   
+           user.save();               
+           res.status(200).json({Message : "Password changed successfully"});        
+             
     }
 };
 
