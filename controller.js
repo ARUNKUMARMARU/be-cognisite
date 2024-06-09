@@ -105,7 +105,7 @@ const controller = {
                     from : config.USER_EMAIL,
                     subject : "Password Reset Link",
                     html : `<p>To reset your passwod 
-                    <a href="${config.BASE_URL}/new-password/${token}">click here</a> </p>  </br>
+                    <a href="${config.BASE_URL}new-password/${token}">click here</a> </p>  </br>
                     <p><b>Note : </b> This link will expire in 10 Minutes</p>`
                 }
               await transporter.sendMail(mailDetails);
