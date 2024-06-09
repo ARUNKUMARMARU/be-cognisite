@@ -37,11 +37,11 @@ const controller = {
         const {email, password} = req.body;    
       const user = await userModel.findOne({email});
         if(!user){
-            return res.json({ error: 'user not found' });
+            return res.json({ Message: 'user not found' });
         }        
         const passwordMatch = await bcrypt.compare(password, user.password);
         if (!passwordMatch) {
-            return res.json({ error: 'incorrect password' });
+            return res.json({ Message: 'incorrect password' });
         }
         const token = jwt.sign({
             id: user._id,  
@@ -78,11 +78,11 @@ const controller = {
     createLink : async (req, res)=>{
         const {email} = req.body;
       
-        const verifyEmail = await userModel.findOne({email});
+        const verifyEmail = await userModel.findOne({email : email});
         
-        if(!verifyEmail){
-            return res.json({ error: 'Email not found' });
-        }      
+        if(verifyEmail == null){            
+             res.json({ Message: 'Email not found' });
+        } else{     
             const token = await crypto.randomBytes(32).toString('hex');
             const date = new Date();
             const linkExpiryTime = new Date(date.getTime()+ 10*60000);
@@ -105,11 +105,12 @@ const controller = {
                     from : config.USER_EMAIL,
                     subject : "Password Reset Link",
                     html : `<p>To reset your passwod 
-                    <a href="${config.BASE_URL}new-password/${token}">click here</a> </p>  </br>
+                    <a href="${config.BASE_URL}/new-password/${token}">click here</a> </p>  </br>
                     <p><b>Note : </b> This link will expire in 10 Minutes</p>`
                 }
               await transporter.sendMail(mailDetails);
-              res.status(200).send('Password reset link sent successfully');        
+              res.json({Message : 'Password reset link sent successfully'});    
+            }    
     },
 
     setNewPassword : async (req,res)=>{
